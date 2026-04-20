@@ -135,6 +135,12 @@
     .quick-wins li { font-size: 10px; color: var(--text-secondary); padding-left: 12px; position: relative; }
     .quick-wins li::before { content: '⚡'; position: absolute; left: 0; font-size: 9px; }
 
+    /* Annotate button */
+    .annotate-btn { width: 100%; background: var(--bg-secondary); color: var(--text); border: 1.5px solid var(--accent); border-radius: 6px; font-size: 11px; font-weight: 600; padding: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 8px; transition: background .15s; }
+    .annotate-btn:hover:not(:disabled) { background: rgba(99,102,241,.15); }
+    .annotate-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .annotate-success { background: rgba(16,185,129,.1); border: 1px solid var(--green); border-radius: 6px; padding: 8px 10px; color: var(--green); font-size: 11px; margin-top: 8px; text-align: center; }
+
     /* Reset */
     .reset-btn { width: 100%; background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; padding: 8px; cursor: pointer; }
     .reset-btn:hover { color: var(--text); }
@@ -288,6 +294,12 @@
         </div>
 
       </div>
+      <button class="annotate-btn" id="annotate-btn" onclick="addAnnotations()" aria-describedby="annotate-desc">
+        <span aria-hidden="true">🖊</span> Add Annotations to Figma
+      </button>
+      <p id="annotate-desc" class="sr-only">Creates an annotated copy of your frame in the Figma document with color-coded violation highlights</p>
+      <div id="annotate-success" class="annotate-success hidden" aria-live="polite"></div>
+
       <button class="reset-btn" style="margin-top:10px" onclick="resetToDefault()">
         ← Analyze Another Frame
       </button>
@@ -452,8 +464,10 @@ Return ONLY raw JSON:
 };
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let designSummary = '';
-let frameName = '';
+let designSummary  = '';
+let frameName      = '';
+let frameViolations = [];
+let violationCount  = 0;
 
 // ─── FIGMA MESSAGE HANDLER ────────────────────────────────────────────────────
 
@@ -473,9 +487,28 @@ window.onmessage = (event) => {
     showError(msg.message);
   }
   if (msg.type === 'design-data') {
-    designSummary = msg.summary;
-    frameName = msg.nodeName;
+    designSummary   = msg.summary;
+    frameName       = msg.nodeName;
+    frameViolations = msg.violations || [];
+    violationCount  = msg.violationCount || 0;
     runAgents();
+  }
+
+  if (msg.type === 'annotations-done') {
+    const btn = document.getElementById('annotate-btn');
+    const suc = document.getElementById('annotate-success');
+    btn.disabled = false;
+    btn.innerHTML = '<span aria-hidden="true">🖊</span> Add Annotations to Figma';
+    suc.textContent = `✓ ${msg.count} annotation${msg.count !== 1 ? 's' : ''} added — check your Figma canvas.`;
+    suc.classList.remove('hidden');
+    announce(`${msg.count} annotations added to Figma.`);
+  }
+
+  if (msg.type === 'annotation-error') {
+    const btn = document.getElementById('annotate-btn');
+    btn.disabled = false;
+    btn.innerHTML = '<span aria-hidden="true">🖊</span> Add Annotations to Figma';
+    showError(msg.message);
   }
 };
 
@@ -534,8 +567,25 @@ function saveKey() {
 
 function resetToDefault() {
   showView('default');
-  designSummary = '';
-  frameName = '';
+  designSummary   = '';
+  frameName       = '';
+  frameViolations = [];
+  violationCount  = 0;
+  document.getElementById('annotate-success').classList.add('hidden');
+}
+
+function addAnnotations() {
+  if (!violationCount) {
+    document.getElementById('annotate-success').textContent = '✓ No violations found to annotate.';
+    document.getElementById('annotate-success').classList.remove('hidden');
+    return;
+  }
+  const btn = document.getElementById('annotate-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span aria-hidden="true">⏳</span> Creating annotations...';
+  document.getElementById('annotate-success').classList.add('hidden');
+  announce('Creating annotated frame in Figma...');
+  parent.postMessage({ pluginMessage: { type: 'create-annotations' } }, '*');
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
